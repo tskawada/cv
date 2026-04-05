@@ -1,27 +1,36 @@
 name: Build CV
-
 on:
   push:
     branches: [main]
     paths: ["cv.yaml"]
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-
       - run: pip install rendercv[full]
-
       - run: rendercv render cv.yaml
+
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes \
+            --pinentry-mode loopback --passphrase-fd 0 \
+            --quick-set-expire "$(gpg --list-keys --with-colons | grep '^fpr' | head -1 | cut -d: -f10)" 0
+
+      - name: Sign PDF
+        run: |
+          for f in rendercv_output/*.pdf; do
+            gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "${{ secrets.GPG_PASSPHRASE }}" \
+              --armor --detach-sign "$f"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
@@ -33,4 +42,6 @@ jobs:
         with:
           tag_name: build-${{ github.run_number }}
           name: CV Build #${{ github.run_number }}
-          files: rendercv_output/*.pdf
+          files: |
+            rendercv_output/*.pdf
+            rendercv_output/*.pdf.asc
